@@ -38,11 +38,9 @@ class ChatRequest(BaseModel):
 def chat_endpoint(request: ChatRequest):
     current_user_id = request.user_id
 
-    # ---------------------------------------------------------
     # Tool 1: Strictly Scoped Inventory Query
-    # ---------------------------------------------------------
-    def get_my_inventory() -> str:
-        """Retrieves all products belonging strictly to the currently logged-in user from the database."""
+    def get_my_inventory(check_type: str = "all") -> str:
+        """Retrieves all products belonging to the user. Always pass check_type='all'."""
         try:
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
@@ -52,16 +50,13 @@ def chat_endpoint(request: ChatRequest):
             )
             results = cursor.fetchall()
             conn.close()
-            # Convert python dict to a valid JSON string (with date fallback)
             return json.dumps(results, default=str)
         except Exception as e:
             return json.dumps({"error": f"Database error: {str(e)}"})
 
-    # ---------------------------------------------------------
     # Tool 2: Strictly Scoped Sales History Query
-    # ---------------------------------------------------------
-    def get_my_history() -> str:
-        """Retrieves the daily sales history records belonging strictly to the currently logged-in user."""
+    def get_my_history(check_type: str = "recent") -> str:
+        """Retrieves the daily sales history records. Always pass check_type='recent'."""
         try:
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
@@ -71,16 +66,13 @@ def chat_endpoint(request: ChatRequest):
             )
             results = cursor.fetchall()
             conn.close()
-            # Convert python dict to a valid JSON string (with date fallback)
             return json.dumps(results, default=str)
         except Exception as e:
             return json.dumps({"error": f"Database error: {str(e)}"})
 
-    # ---------------------------------------------------------
-    # Tool 3: Strictly Scoped Action Command (Sell Product)
-    # ---------------------------------------------------------
+    # Tool 3: Strictly Scoped Action Command
     def sell_product(product_id: int, quantity: int) -> str:
-        """Sells a specified quantity of a product by its ID and updates the database safely."""
+        """Sells a specified quantity of a product by its ID and updates the database."""
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -108,26 +100,23 @@ def chat_endpoint(request: ChatRequest):
 
     try:
         chat = client.chats.create(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash",  
             config=types.GenerateContentConfig(
                 tools=[get_my_inventory, get_my_history, sell_product],
                 system_instruction=(
-                    f"You are a store manager AI assistant for user ID {current_user_id}. "
-                    "When the user asks about their inventory, products, stock, or items, you MUST call the `get_my_inventory` tool. "
-                    "When the user asks about past sales or history, call the `get_my_history` tool. "
-                    "When the user asks to sell an item, call the `sell_product` tool. "
-                    "Never attempt to write or guess SQL queries. Only use the provided tools. "
-                    "Use Philippine Peso (Php) as the currency. "
-                    "Always summarize the final outcome in a friendly, concise, and conversational tone."
+                    f"You are a store manager AI assistant. The current user ID is {current_user_id}. "
+                    "When asked about inventory, stock, or products, ALWAYS call the get_my_inventory tool. "
+                    "When asked about sales history, ALWAYS call the get_my_history tool. "
+                    "When asked to sell an item, ALWAYS call the sell_product tool. "
+                    "Use Philippine Peso (Php). Format responses clearly and conversationally."
                 )
             )
         )
         
         response = chat.send_message(request.message)
         
-        # Fallback to prevent blank bubbles if unexpected formatting occurs
-        reply_text = response.text if response.text else "I checked the system, but an error occurred while formatting your response."
-        
+        reply_text = response.text if response.text else "The action was completed, but no text was generated."
         return {"reply": reply_text}
     except Exception as e:
+        print(f"Gemini API Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
