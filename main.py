@@ -100,7 +100,7 @@ def chat_endpoint(request: ChatRequest):
 
     try:
         chat = client.chats.create(
-            model="gemini-1.5-flash",  
+            model="gemini-2.5-flash",  
             config=types.GenerateContentConfig(
                 tools=[get_my_inventory, get_my_history, sell_product],
                 system_instruction=(
