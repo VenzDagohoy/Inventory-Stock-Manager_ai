@@ -1,4 +1,5 @@
 import os
+import json
 import mysql.connector
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,16 +46,16 @@ def chat_endpoint(request: ChatRequest):
         try:
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
-            # HARDCODED: The user_id parameter is strictly enforced here.
             cursor.execute(
                 "SELECT id, name, price, stock, sold FROM products WHERE user_id = %s ORDER BY id ASC",
                 (current_user_id,)
             )
             results = cursor.fetchall()
             conn.close()
-            return str(results)
+            # Convert python dict to a valid JSON string (with date fallback)
+            return json.dumps(results, default=str)
         except Exception as e:
-            return f"Database error: {str(e)}"
+            return json.dumps({"error": f"Database error: {str(e)}"})
 
     # ---------------------------------------------------------
     # Tool 2: Strictly Scoped Sales History Query
@@ -64,16 +65,16 @@ def chat_endpoint(request: ChatRequest):
         try:
             conn = get_db_connection()
             cursor = conn.cursor(dictionary=True)
-            # HARDCODED: The user_id parameter is strictly enforced here.
             cursor.execute(
                 "SELECT record_date, total_sold, total_earnings, items_sold_details FROM daily_history WHERE user_id = %s ORDER BY record_date DESC",
                 (current_user_id,)
             )
             results = cursor.fetchall()
             conn.close()
-            return str(results)
+            # Convert python dict to a valid JSON string (with date fallback)
+            return json.dumps(results, default=str)
         except Exception as e:
-            return f"Database error: {str(e)}"
+            return json.dumps({"error": f"Database error: {str(e)}"})
 
     # ---------------------------------------------------------
     # Tool 3: Strictly Scoped Action Command (Sell Product)
@@ -84,7 +85,6 @@ def chat_endpoint(request: ChatRequest):
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            # Verify ownership using both product_id and current_user_id
             cursor.execute(
                 "SELECT name, stock FROM products WHERE id = %s AND user_id = %s",
                 (product_id, current_user_id)
@@ -107,9 +107,8 @@ def chat_endpoint(request: ChatRequest):
             return f"Database error: {str(e)}"
 
     try:
-        response = client.models.generate_content(
+        chat = client.chats.create(
             model="gemini-2.5-flash",
-            contents=request.message,
             config=types.GenerateContentConfig(
                 tools=[get_my_inventory, get_my_history, sell_product],
                 system_instruction=(
@@ -123,6 +122,12 @@ def chat_endpoint(request: ChatRequest):
                 )
             )
         )
-        return {"reply": response.text}
+        
+        response = chat.send_message(request.message)
+        
+        # Fallback to prevent blank bubbles if unexpected formatting occurs
+        reply_text = response.text if response.text else "I checked the system, but an error occurred while formatting your response."
+        
+        return {"reply": reply_text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
